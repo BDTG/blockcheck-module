@@ -1,0 +1,11 @@
+bin/
+obj/
+*.user
+*.suo
+*.dll
+*.pdb
+*.deps.json
+*.runtimeconfig.json
+bundle/
+*.log
+.vs/
