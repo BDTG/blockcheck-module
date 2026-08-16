@@ -151,14 +151,22 @@ public sealed class BlockcheckModule : IModule, IModuleOps
                 "exit /b %errorlevel%\r\n";
             File.WriteAllText(batchFile, batch);
 
-            // Không UAC bên trong module: module khai requiresElevation → host sẽ spawn elevated (TODO Giai đoạn sau)
-            _cmdProc = Process.Start(new ProcessStartInfo
+            // BẮT BUỘC Redirect: cygwin bash cần stdout/stderr pipe hợp lệ —
+            // nếu không (spawn từ ModuleHost không console) script fail im lặng, không tạo log.
+            var psi = new ProcessStartInfo
             {
                 FileName = Path.Combine(Environment.SystemDirectory, "cmd.exe"),
                 Arguments = $"/c \"{batchFile}\"",
                 UseShellExecute = false,
                 CreateNoWindow = true,
-            });
+                RedirectStandardError = true,
+                RedirectStandardOutput = true,
+            };
+            _cmdProc = Process.Start(psi);
+            if (_cmdProc == null) throw new InvalidOperationException("cmd.exe start failed");
+            // Đọc discard cả 2 stream — tránh deadlock khi output lớn
+            _ = Task.Run(async () => { try { await _cmdProc.StandardOutput.ReadToEndAsync(); } catch { } });
+            _ = Task.Run(async () => { try { await _cmdProc.StandardError.ReadToEndAsync(); } catch { } });
 
             lock (_lock) { _logFile = logFile; }
             _ctx?.Log.Info($"Blockcheck started: domain={domain} log={logFile}");
@@ -209,7 +217,7 @@ public sealed class BlockcheckModule : IModule, IModuleOps
                 // chấp nhận cả "winws" (v1) lẫn "winws2" (v2)
                 int marker = line.IndexOf(": winws");
                 if (marker < 0) continue;
-                if (line.Contains("working without bypass") || line.Contains("test aborted")) continue;
+                if (line.Contains("working without bypass") || line.Contains("test aborted") || line.Contains("not working")) continue;
 
                 string args = line[(marker + 8)..].Trim();
                 string testType = line[..marker].Trim();
